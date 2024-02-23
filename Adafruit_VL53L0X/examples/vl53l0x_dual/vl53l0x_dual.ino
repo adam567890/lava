@@ -1,7 +1,8 @@
-#include <Arduino.h>
+//#include <Arduino.h>
 #include "Adafruit_VL53L0X.h"
-#include <Wire.h>
+//#include <Wire.h>
 #include "Adafruit_TCS34725.h"
+
 // Motor A
 #define Ain1 7
 #define Ain2 6
@@ -12,17 +13,17 @@
 #define pwm1 10 //A
 #define pwm2 11 //B
 //Sensors
-#define LOX1_ADDRESS 0x31 //address for wheel side
-#define LOX2_ADDRESS 0x32 //address for other side
+#define LOX1_ADDRESS 0x30 //address for wheel side
+#define LOX2_ADDRESS 0x31 //address for other side
 // set the pins to shutdown
 #define SHT_LOX1 26 //shutdown 
 #define SHT_LOX2 27 //shutdown
 #define ledint 39 //LED interrupt pin for color sensor
 
-// objects for the vl53l0x
+// objects for the vl53l0x laser sensor
 Adafruit_VL53L0X lox1 = Adafruit_VL53L0X();
 Adafruit_VL53L0X lox2 = Adafruit_VL53L0X();
-//color sensor object
+//object for color sensor
 Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_614MS, TCS34725_GAIN_1X);
 
 // this holds the measurement
@@ -52,59 +53,36 @@ void setID() {
   digitalWrite(SHT_LOX2, LOW);
 
   // initing LOX1
-  if(!lox1.begin(LOX1_ADDRESS)) {
+  if(!lox1.begin(LOX1_ADDRESS, false, &Wire)) {
     Serial.println(F("Failed to boot first VL53L0X"));
     while(1);
   }
   delay(10);
-
   // activating LOX2
   digitalWrite(SHT_LOX2, HIGH);
   delay(10);
 
   //initing LOX2
-  if(!lox2.begin(LOX2_ADDRESS)) {
+  if(!lox2.begin(LOX2_ADDRESS, false, &Wire)) {
     Serial.println(F("Failed to boot second VL53L0X"));
     while(1);
   }
+
+
   
+  // Now we're ready to get readings!
 }
 
-void read_dual_sensors() {
-  
-  lox1.rangingTest(&measure1, false); // pass in 'true' to get debug data printout!
-  lox2.rangingTest(&measure2, false); // pass in 'true' to get debug data printout!
 
-  // print sensor one reading
-  Serial.print(F("1: "));
-  if(measure1.RangeStatus != 4) {     // if not out of range
-    Serial.print(measure1.RangeMilliMeter);
-  } else {
-    Serial.print(F("Out of range"));
-  }
-  
-  Serial.print(F(" "));
-
-  // print sensor two reading
-  Serial.print(F("2: "));
-  if(measure2.RangeStatus != 4) {
-    Serial.print(measure2.RangeMilliMeter);
-  } else {
-    Serial.print(F("Out of range"));
-  }
-  
-  Serial.println();
-}
 
 void setup() {
-    // Initialize the motor control pins as outputs
+  // Initialize the motor control pins as outputs
   pinMode(Ain1, OUTPUT);
   pinMode(Ain2, OUTPUT);
   pinMode(Bin1, OUTPUT);
   pinMode(Bin2, OUTPUT);
   pinMode(pwm1, OUTPUT);
   pinMode(pwm2, OUTPUT);
-  //pinMode(scl2, OUTPUT);
   analogWriteFrequency(10, 375000); // Teensy 3.0 pin 3 also changes to 375 kHz
  // analogWriteResolution(4096);  // analogWrite value 0 to 4095, or 4096 for high
   analogWriteFrequency(11, 375000); // Teensy 3.0 pin 3 also changes to 375 kHz
@@ -112,7 +90,8 @@ void setup() {
   
   // wait until serial port opens for native USB devices
   while (! Serial) { delay(1); }
-//color sensor init
+
+  //color sensor init
   if (tcs.begin(0x29, &Wire1)) {
     Serial.println("Found sensor");
   } else {
@@ -150,9 +129,56 @@ void loop() {
    delay(500);*/
    read_dual_sensors();
    delay(100);
-   //getColor();
+   getColor();
    delay(100);
+ 
+  
 }
+
+void read_dual_sensors() {
+  
+  lox1.rangingTest(&measure1, true); // pass in 'true' to get debug data printout!
+  lox2.rangingTest(&measure2, true); // pass in 'true' to get debug data printout!
+
+  // print sensor one reading
+  Serial.print(F("1: "));
+  if(measure1.RangeStatus != 4) {     // if not out of range
+    Serial.print(measure1.RangeMilliMeter);
+  } else {
+    Serial.print(F("Out of range"));
+  }
+  
+  Serial.print(F(" "));
+
+  // print sensor two reading
+  Serial.print(F("2: "));
+  if(measure2.RangeStatus != 4) {
+    Serial.print(measure2.RangeMilliMeter);
+  } else {
+    Serial.print(F("Out of range"));
+  }
+  
+  Serial.println();
+}
+
+void getColor()
+{
+  uint16_t r, g, b, c, colorTemp, lux;
+
+  tcs.getRawData(&r, &g, &b, &c);
+  // colorTemp = tcs.calculateColorTemperature(r, g, b);
+  colorTemp = tcs.calculateColorTemperature_dn40(r, g, b, c);
+  lux = tcs.calculateLux(r, g, b);
+
+  Serial.print("Color Temp: "); Serial.print(colorTemp, DEC); Serial.print(" K - ");
+  Serial.print("Lux: "); Serial.print(lux, DEC); Serial.print(" - ");
+  Serial.print("R: "); Serial.print(r, DEC); Serial.print(" ");
+  Serial.print("G: "); Serial.print(g, DEC); Serial.print(" ");
+  Serial.print("B: "); Serial.print(b, DEC); Serial.print(" ");
+  Serial.print("C: "); Serial.print(c, DEC); Serial.print(" ");
+  Serial.println(" ");
+}
+
 
 void straight() {
   digitalWrite(Ain1, LOW);
@@ -193,20 +219,4 @@ void stopMotors() {
   digitalWrite(Bin2, LOW);
 }
 
-void getColor()
-{
-  uint16_t r, g, b, c, colorTemp, lux;
 
-  tcs.getRawData(&r, &g, &b, &c);
-  // colorTemp = tcs.calculateColorTemperature(r, g, b);
-  colorTemp = tcs.calculateColorTemperature_dn40(r, g, b, c);
-  lux = tcs.calculateLux(r, g, b);
-
-  Serial.print("Color Temp: "); Serial.print(colorTemp, DEC); Serial.print(" K - ");
-  Serial.print("Lux: "); Serial.print(lux, DEC); Serial.print(" - ");
-  Serial.print("R: "); Serial.print(r, DEC); Serial.print(" ");
-  Serial.print("G: "); Serial.print(g, DEC); Serial.print(" ");
-  Serial.print("B: "); Serial.print(b, DEC); Serial.print(" ");
-  Serial.print("C: "); Serial.print(c, DEC); Serial.print(" ");
-  Serial.println(" ");
-}
