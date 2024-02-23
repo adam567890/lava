@@ -138,8 +138,20 @@ void setup() {
 }
 
 void loop() {
-  read_dual_sensors();
-  delay(100);
+  /* turnLeftFWD(100); //Testing turn rate
+   delay(500);
+   stopMotors();
+   delay(500);
+   turnRightFWD(100); //Testing turn rate
+   delay(500);
+   moveBackward();
+   delay(500);
+   stopMotors();
+   delay(500);*/
+   read_dual_sensors();
+   delay(100);
+   //getColor();
+   delay(100);
 }
 
 void straight() {
