@@ -20,11 +20,15 @@
 #define SHT_LOX2 27 //shutdown
 #define ledint 39 //LED interrupt pin for color sensor
 
+#define blackValue 65 //Black color reading
+#define whiteValue 405 // White color reading
+float blackThreshold = (blackValue + whiteValue)/2; //threshold for line following
+double PROPORTIONAL_GAIN = 1.1; //Proportional gain for turn rate
 // objects for the vl53l0x laser sensor
 Adafruit_VL53L0X lox1 = Adafruit_VL53L0X();
 Adafruit_VL53L0X lox2 = Adafruit_VL53L0X();
 //object for color sensor
-Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_614MS, TCS34725_GAIN_1X);
+Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_60MS, TCS34725_GAIN_1X);
 
 // this holds the measurement
 VL53L0X_RangingMeasurementData_t measure1;
@@ -73,31 +77,7 @@ void setID() {
   // Now we're ready to get readings!
 }
 
-void read_dual_sensors() {
-  
-  lox1.rangingTest(&measure1, true); // pass in 'true' to get debug data printout!
-  lox2.rangingTest(&measure2, true); // pass in 'true' to get debug data printout!
 
-  // print sensor one reading
-  Serial.print(F("1: "));
-  if(measure1.RangeStatus != 4) {     // if not out of range
-    Serial.print(measure1.RangeMilliMeter);
-  } else {
-    Serial.print(F("Out of range"));
-  }
-  
-  Serial.print(F(" "));
-
-  // print sensor two reading
-  Serial.print(F("2: "));
-  if(measure2.RangeStatus != 4) {
-    Serial.print(measure2.RangeMilliMeter);
-  } else {
-    Serial.print(F("Out of range"));
-  }
-  
-  Serial.println();
-}
 
 void setup() {
   // Initialize the motor control pins as outputs
@@ -107,9 +87,9 @@ void setup() {
   pinMode(Bin2, OUTPUT);
   pinMode(pwm1, OUTPUT);
   pinMode(pwm2, OUTPUT);
-  analogWriteFrequency(10, 375000); // Teensy 3.0 pin 3 also changes to 375 kHz
- // analogWriteResolution(4096);  // analogWrite value 0 to 4095, or 4096 for high
-  analogWriteFrequency(11, 375000); // Teensy 3.0 pin 3 also changes to 375 kHz
+  analogWriteFrequency(10, 100000); // Teensy 3.0 pin 3 also changes to 375 kHz
+  analogWriteFrequency(11, 100000); // Teensy 3.0 pin 3 also changes to 375 kHz
+  analogWriteResolution(11);  // analogWrite value 0 to 4095, or 4096 for high
   Serial.begin(115200);
   
   // wait until serial port opens for native USB devices
@@ -141,22 +121,90 @@ void setup() {
 }
 
 void loop() {
-  /* turnLeftFWD(100); //Testing turn rate
-   delay(500);
+   
+   for(int i = 0; i < 70; i++)
+   {
+    followLine();
+   }
    stopMotors();
-   delay(500);
-   turnRightFWD(100); //Testing turn rate
-   delay(500);
-   moveBackward();
-   delay(500);
-   stopMotors();
-   delay(500);*/
    read_dual_sensors();
-   delay(100);
-   //getColor();
-   delay(100);
+   //delay(100);
+   getColor();
+   //delay(100);
  
   
+}
+
+void followLine()
+{
+  uint16_t r, g, b, c;
+  tcs.getRawData(&r, &g, &b, &c);
+  float deviation = c - blackThreshold;
+  int turn_rate = PROPORTIONAL_GAIN * deviation;
+  drive(40, turn_rate);
+}
+
+void drive(float drive_speed, int turn_rate)
+{
+  digitalWrite(Ain1, LOW);
+  digitalWrite(Ain2, HIGH);
+  digitalWrite(Bin1, HIGH);
+  digitalWrite(Bin2, LOW);
+  
+  // Map the speed to a PWM value within the range of 0 to 2047
+  int baseSpeedPWM = map(drive_speed, 0, 100, 0, 2047); // Adjust source range based on your requirements
+
+  // Calculate the maximum allowed PWM based on 1.5 times the base speed
+  int maxPWM = baseSpeedPWM * 2;
+
+  // Calculate the adjustment for the motor speed based on the turn rate
+  // This implementation assumes turn_rate in the range -100 to 100
+  int speedAdjustment = map(abs(turn_rate), 0, 100, 0, baseSpeedPWM / 2);
+
+  // Initialize motor speeds to base speed
+  int motorASpeedPWM = baseSpeedPWM;
+  int motorBSpeedPWM = baseSpeedPWM;
+
+  // Adjust the speed of Motor A for turning
+  if (turn_rate > 0) {
+    // Left turn: Increase Motor A's speed, but not beyond 1.5 times the base speed
+    motorASpeedPWM = min(baseSpeedPWM + speedAdjustment, maxPWM);
+  } else if (turn_rate < 0) {
+    // Right turn: Decrease Motor A's speed
+    motorASpeedPWM = max(baseSpeedPWM - speedAdjustment, 0);
+  }
+
+  // Apply the calculated PWM values to the motors
+  analogWrite(11, motorASpeedPWM);
+  analogWrite(10, motorBSpeedPWM); // Motor B always runs at base speed
+  }
+  
+
+
+void read_dual_sensors() {
+  
+  lox1.rangingTest(&measure1, true); // pass in 'true' to get debug data printout!
+  lox2.rangingTest(&measure2, true); // pass in 'true' to get debug data printout!
+
+  // print sensor one reading
+  Serial.print(F("1: "));
+  if(measure1.RangeStatus != 4) {     // if not out of range
+    Serial.print(measure1.RangeMilliMeter);
+  } else {
+    Serial.print(F("Out of range"));
+  }
+  
+  Serial.print(F(" "));
+
+  // print sensor two reading
+  Serial.print(F("2: "));
+  if(measure2.RangeStatus != 4) {
+    Serial.print(measure2.RangeMilliMeter);
+  } else {
+    Serial.print(F("Out of range"));
+  }
+  
+  Serial.println();
 }
 
 void getColor()
@@ -183,8 +231,8 @@ void straight() {
   digitalWrite(Ain2, HIGH);
   digitalWrite(Bin1, HIGH);
   digitalWrite(Bin2, LOW);
-  analogWrite(11, 256); //Set PWM to max
-  analogWrite(10,256); //Set PWM to max
+  analogWrite(11, 656); //Set PWM to max
+  analogWrite(10, 656); //Set PWM to max
 }
 
 void moveBackward() {
