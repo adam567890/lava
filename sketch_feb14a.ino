@@ -22,10 +22,12 @@
 // set the pins to shutdown ToF
 #define SHT_LOX1 26 //shutdown ToF 1
 #define SHT_LOX2 27 //shutdown ToF 2
-#define ledint 39 //LED interrupt pin for color sensor
+//#define colorVin 39 //VIN pin for color sensor
+#define LEDint 41 //Interrupt for color sensor
+#define LEDpin 40 //LED pin for color sensor
 
-#define blackValue 65 //Black color reading (constant, change for new surfaces)
-#define whiteValue 405 // White color reading (constant, change for new surfaces)
+#define blackValue 50 //Black color reading (constant, change for new surfaces)
+#define whiteValue 460 // White color reading (constant, change for new surfaces)
 
 float blackThreshold = (blackValue + whiteValue)/2; //threshold for line following
 double PROPORTIONAL_GAIN = 1.1; //Proportional gain for turn rate
@@ -35,11 +37,11 @@ Adafruit_VL53L0X lox1 = Adafruit_VL53L0X();
 Adafruit_VL53L0X lox2 = Adafruit_VL53L0X();
 
 //object for color sensor
-Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_60MS, TCS34725_GAIN_1X);
+Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_24MS, TCS34725_GAIN_1X);
 
 // this holds the measurement for ToF sensors
-VL53L0X_RangingMeasurementData_t measure1;
-VL53L0X_RangingMeasurementData_t measure2;
+VL53L0X_RangingMeasurementData_t meas1;
+VL53L0X_RangingMeasurementData_t meas2;
 
 /*
     Reset all ToF sensors by setting all of their XSHUT pins low for delay(10), then set all XSHUT high to bring out of reset
@@ -91,17 +93,21 @@ void setup() {
   pinMode(Bin2, OUTPUT);
   pinMode(pwm1, OUTPUT);
   pinMode(pwm2, OUTPUT);
+  //pinMode(colorVin, OUTPUT);
+  pinMode(LEDint, OUTPUT);
+  pinMode(LEDpin, OUTPUT);
 
-  analogWriteFrequency(10, 100000); // Teensy 3.0 pin 3 also changes to 375 kHz
-  analogWriteFrequency(11, 100000); // Teensy 3.0 pin 3 also changes to 375 kHz
-  analogWriteResolution(11);  // analogWrite value 0 to 4095, or 4096 for high
+  //Setting analogWrite parameters for PWM control of motors
+  analogWriteFrequency(10, 100000); // The maximum PWM frequency for the TB6612 is 100khz
+  analogWriteFrequency(11, 100000);
+  analogWriteResolution(11);  // analogWrite resolution set to 11 bits, maximum setting is 2047. Motors move above ~600
 
   Serial.begin(115200); //open serial port for USB debugging
   
   // wait until serial port opens for native USB devices
-  while (! Serial) { delay(1); }
+  delay(1000);
 
-  //color sensor init
+  //color sensor init, address for this one is 0x29 and cannot be reprogrammed. Using Wire1 bus instead of Wire bus
   if (tcs.begin(0x29, &Wire1)) {
     Serial.println("Found sensor");
   } else {
@@ -126,14 +132,17 @@ void setup() {
 
 void loop() {
    
-   for(int i = 0; i < 70; i++)
+   /*for(int i = 0; i < 70; i++)
    {
     followLine(); // follow line needs to be called continuously for given timeframe or until a given condition is met
    }
+   */
+   straight();
+   delay(100);
    stopMotors(); // make sure to call stopmotors when done to stop forward motion as adjustments will no longer be made once outside follow line
    read_dual_sensors(); //still having trouble with this one
    //delay(100);
-   getColor(); //working as intended, utilized in follow line, but called here for printout to serial
+   //getColor(); //working as intended, utilized in follow line, but called here for printout to serial
    //delay(100);
  
   
@@ -141,11 +150,11 @@ void loop() {
 
 void followLine()
 {
-  uint16_t r, g, b, c;
-  tcs.getRawData(&r, &g, &b, &c);
-  float deviation = c - blackThreshold;
-  int turn_rate = PROPORTIONAL_GAIN * deviation;
-  drive(40, turn_rate);
+  uint16_t r, g, b, c; //RGB values and conglomerated color value all as unsigned 16 bit ints
+  tcs.getRawData(&r, &g, &b, &c); //Retreive sensor raw data
+  float deviation = c - blackThreshold; //finding deviation of color data from black threshold
+  int turn_rate = PROPORTIONAL_GAIN * deviation; //determine turn rate based on sign of deviation, deviation, and proportional gain
+  drive(35, turn_rate); //pass in driving speed, turn rate into drive function
 }
 
 void drive(float drive_speed, int turn_rate)
@@ -160,7 +169,7 @@ void drive(float drive_speed, int turn_rate)
   int baseSpeedPWM = map(drive_speed, 0, 100, 0, 2047); // Adjust source range based on your requirements
 
   // Calculate the maximum allowed PWM based on 1.5 times the base speed
-  int maxPWM = baseSpeedPWM * 2;
+  int maxPWM = baseSpeedPWM * 3;
 
   // Calculate the adjustment for the motor speed based on the turn rate
   // This implementation assumes turn_rate in the range -100 to 100
@@ -169,6 +178,7 @@ void drive(float drive_speed, int turn_rate)
   // Initialize motor speeds to base speed
   int motorASpeedPWM = baseSpeedPWM;
   int motorBSpeedPWM = baseSpeedPWM;
+  //int motorASpeedPWMbase = baseSpeedPWM;
 
   // Adjust the speed of Motor A for turning
   if (turn_rate > 0) {
@@ -177,24 +187,37 @@ void drive(float drive_speed, int turn_rate)
   } else if (turn_rate < 0) {
     // Right turn: Decrease Motor A's speed
     motorASpeedPWM = max(baseSpeedPWM - speedAdjustment, 0);
+    
   }
-
-  // Apply the calculated PWM values to the motors
-  analogWrite(11, motorASpeedPWM);
-  analogWrite(10, motorBSpeedPWM); // Motor B always runs at base speed
+  /*if(motorASpeedPWM <= (0.3 * 2047)) { // Adjust the threshold as needed
+    // Reverse Motor A's direction
+    digitalWrite(Ain1, HIGH);
+    digitalWrite(Ain2, LOW);
+    //digitalWrite(Bin1, LOW);
+    //digitalWrite(Bin2, HIGH);
+    analogWrite(11, baseSpeedPWM); // Maintain speed for Motor B
+    analogWrite(10, motorBSpeedPWM);
+  }*/
+  
+     // Apply the calculated PWM values to the motors
+    analogWrite(11, motorASpeedPWM);
+    analogWrite(10, motorBSpeedPWM); // Motor B always runs at base speed
+  
+ 
+  
   }
   
 
 
 void read_dual_sensors() {
   
-  lox1.rangingTest(&measure1, true); // pass in 'true' to get debug data printout!
-  lox2.rangingTest(&measure2, true); // pass in 'true' to get debug data printout!
+  lox1.rangingTest(&meas1, true); // pass in 'true' to get debug data printout!
+  lox2.rangingTest(&meas2, true); // pass in 'true' to get debug data printout!
 
   // print sensor one reading
   Serial.print(F("1: "));
-  if(measure1.RangeStatus != 4) {     // if not out of range
-    Serial.print(measure1.RangeMilliMeter);
+  if(meas1.RangeStatus != 4) {     // if not out of range
+    Serial.print(meas1.RangeMilliMeter);
   } else {
     Serial.print(F("Out of range"));
   }
@@ -203,8 +226,8 @@ void read_dual_sensors() {
 
   // print sensor two reading
   Serial.print(F("2: "));
-  if(measure2.RangeStatus != 4) {
-    Serial.print(measure2.RangeMilliMeter);
+  if(meas2.RangeStatus != 4) {
+    Serial.print(meas2.RangeMilliMeter);
   } else {
     Serial.print(F("Out of range"));
   }
