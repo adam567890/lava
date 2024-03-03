@@ -132,7 +132,7 @@ void setup() {
 
 void loop() {
    
-   /*for(int i = 0; i < 70; i++)
+   /*for(int i = 0; i < 70; i++)     //this is commented out because it breaks VL53L0X readings and sends them to zero
    {
     followLine(); // follow line needs to be called continuously for given timeframe or until a given condition is met
    }
@@ -142,7 +142,7 @@ void loop() {
    stopMotors(); // make sure to call stopmotors when done to stop forward motion as adjustments will no longer be made once outside follow line
    read_dual_sensors(); //still having trouble with this one
    //delay(100);
-   //getColor(); //working as intended, utilized in follow line, but called here for printout to serial
+   //getColor(); //working as intended, utilized in follow line, but called here for printout to serial (commented out because it sends VL53L0X readings to zero)
    //delay(100);
  
   
